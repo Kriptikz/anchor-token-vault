@@ -1,5 +1,5 @@
 [programs.localnet]
-anchor_token_vault = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+anchor_token_vault = "GX2r6F2RzNAoR54oZ3EgrDwnUYJvW24cJpZnBnULRGiV"
 
 [registry]
 url = "https://anchor.projectserum.com"
