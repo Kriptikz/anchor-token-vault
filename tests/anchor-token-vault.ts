@@ -104,8 +104,8 @@ describe('anchor-token-vault', () => {
     let pdaTokenAOwningProgram = await (await provider.connection.getAccountInfo(pdaTokenAAddress)).owner;
     assert.equal(pdaTokenAOwningProgram.toString(), TOKEN_PROGRAM_ID.toString());
 
-    let pdaTokenAAccounAmount = await (await mintA.getAccountInfo(pdaTokenAAddress)).amount.toNumber();
-    assert.equal(0, pdaTokenAAccounAmount);
+    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaTokenAAddress)).amount.toNumber();
+    assert.equal(0, pdaTokenAAccountAmount);
 
     // Attemp second initialization of the same vault. Our init_if_needed attribute lets us call this as much as we want,
     // but only actually does the initialization once. Without init_if_needed this transaction will throw an error.
@@ -124,4 +124,26 @@ describe('anchor-token-vault', () => {
       })
     );
   });
+
+  it('Deposits to our programs token vault', async () => {
+    const AMOUNT_TO_TRANSFER = 200;
+
+    await provider.connection.confirmTransaction(
+      await program.rpc.deposit(
+        new anchor.BN(AMOUNT_TO_TRANSFER), {
+          accounts: {
+            vaultAccount: pdaTokenAAddress,
+            depositor: user1.publicKey,
+            depositorTokenAccount: user1TokenAAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          },
+          signers: [user1]
+      })
+    );
+
+    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaTokenAAddress)).amount.toNumber();
+    assert.equal(AMOUNT_TO_TRANSFER, pdaTokenAAccountAmount);
+
+  });
+
 });
