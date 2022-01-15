@@ -21,11 +21,6 @@ describe('anchor-token-vault', () => {
   // Declare our user associated token account
   let user1TokenAAccount = null;
 
-
-  // Declare our authority PDA and bump
-  let pdaAuthorityAddress = null;
-  let pdaAuthorityBump = null;
-
   // Declare our token account PDA and bump
   let pdaTokenAAddress = null;
   let pdaTokenABump = null;
@@ -67,7 +62,7 @@ describe('anchor-token-vault', () => {
       null,
       0,
       TOKEN_PROGRAM_ID
-    )
+    );
 
     // Create user1's associated token account
     user1TokenAAccount = await mintA.createAccount(user1.publicKey);
@@ -81,16 +76,52 @@ describe('anchor-token-vault', () => {
     );
 
     let amount = (await mintA.getAccountInfo(user1TokenAAccount)).amount.toNumber();
-    console.log("User1 Token A Amount: ", amount);
     assert.equal(MINT_A_AMOUNT, amount);
 
     // Find our PDA's
-    [pdaAuthorityAddress, pdaAuthorityBump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("authority")], program.programId);
-
     // For this addresses seeds, we use 'vault' as well as the tokens mint public key -- We could also use a name, but I don't feel that is necessary.
     [pdaTokenAAddress, pdaTokenABump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("vault"), mintA.publicKey.toBuffer()], program.programId);
 
-    console.log(`PDA Authority Address: ${pdaAuthorityAddress}, Bump: ${pdaAuthorityBump}`);
-    console.log(`PDA Token A Address: ${pdaTokenAAddress}, Bump: ${pdaTokenABump}`);
+    //console.log(`PDA Token A Address: ${pdaTokenAAddress}, Bump: ${pdaTokenABump}`);
+  });
+
+  it('Initializes our programs token vault', async () => {
+    await provider.connection.confirmTransaction(
+      await program.rpc.initializeVault(
+        pdaTokenABump, {
+          accounts: {
+            vaultAccount: pdaTokenAAddress,
+            payer: payer.publicKey,
+            mint: mintA.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          },
+          signers: [payer]
+      })
+    );
+
+    let pdaTokenAOwningProgram = await (await provider.connection.getAccountInfo(pdaTokenAAddress)).owner;
+    assert.equal(pdaTokenAOwningProgram.toString(), TOKEN_PROGRAM_ID.toString());
+
+    let pdaTokenAAccounAmount = await (await mintA.getAccountInfo(pdaTokenAAddress)).amount.toNumber();
+    assert.equal(0, pdaTokenAAccounAmount);
+
+    // Attemp second initialization of the same vault. Our init_if_needed attribute lets us call this as much as we want,
+    // but only actually does the initialization once. Without init_if_needed this transaction will throw an error.
+    await provider.connection.confirmTransaction(
+      await program.rpc.initializeVault(
+        pdaTokenABump, {
+          accounts: {
+            vaultAccount: pdaTokenAAddress,
+            payer: payer.publicKey,
+            mint: mintA.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          },
+          signers: [payer]
+      })
+    );
   });
 });
