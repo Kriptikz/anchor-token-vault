@@ -21,6 +21,10 @@ describe('anchor-token-vault', () => {
   // Declare our user associated token account
   let user1TokenAAccount = null;
 
+  // Declare our user VaultAccess PDA
+  let user1VaultAccessAddress = null;
+  let user1VaultAccessBump = null;
+
   // Declare our token account PDA and bump
   let pdaTokenAAddress = null;
   let pdaTokenABump = null;
@@ -133,14 +137,41 @@ describe('anchor-token-vault', () => {
 
   });
 
+  it('Initialize a VaultAccess account for our user1', async () => {
+    // Create our users VaultAccess PDA
+    [user1VaultAccessAddress, user1VaultAccessBump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("vault-access"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
+
+    await provider.connection.confirmTransaction(
+      await program.rpc.initializeVaultAccess(
+        user1VaultAccessBump, {
+          accounts: {
+            vaultAccess: user1VaultAccessAddress,
+            authority: user1.publicKey,
+            mint: mintA.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
+          },
+          signers: [user1]
+      })
+    );
+
+    let accessAccount = await program.account.vaultAccess.fetch(user1VaultAccessAddress);
+    let authority = accessAccount.authority;
+    let amount = accessAccount.amount;
+
+    assert.equal(user1.publicKey.toString(), authority.toString());
+    assert.equal(0, amount);
+
+  });
+
   it('Deposits to our programs token vault', async () => {
-    const AMOUNT_TO_TRANSFER = 200;
+    const AMOUNT_TO_DEPOSIT = 200;
 
     await provider.connection.confirmTransaction(
       await program.rpc.deposit(
-        new anchor.BN(AMOUNT_TO_TRANSFER), {
+        new anchor.BN(AMOUNT_TO_DEPOSIT), {
           accounts: {
             vaultAccount: pdaTokenAAddress,
+            vaultAccess: user1VaultAccessAddress,
             depositor: user1.publicKey,
             depositorTokenAccount: user1TokenAAccount,
             tokenProgram: TOKEN_PROGRAM_ID,
@@ -150,27 +181,123 @@ describe('anchor-token-vault', () => {
     );
 
     let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaTokenAAddress)).amount.toNumber();
-    assert.equal(AMOUNT_TO_TRANSFER, pdaTokenAAccountAmount);
+    assert.equal(AMOUNT_TO_DEPOSIT, pdaTokenAAccountAmount);
+
+    let accessAccount = await program.account.vaultAccess.fetch(user1VaultAccessAddress);
+    let amount = accessAccount.amount;
+
+    assert.equal(AMOUNT_TO_DEPOSIT, amount);
 
   });
 
   it('Withdraw from our programs token vault', async () => {
-    const AMOUNT_TO_TRANSFER = 200;
+    const AMOUNT_TO_WITHDRAW = 200;
+
+    // Create our VaultAccess PDA
+    let [vaultAccessAddress, vaultAccessBump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("vault-access"), mintA.publicKey.toBuffer(), user1.publicKey.toBuffer()], program.programId);
+
 
     await provider.connection.confirmTransaction(
       await program.rpc.withdraw(
-        new anchor.BN(AMOUNT_TO_TRANSFER),
+        new anchor.BN(AMOUNT_TO_WITHDRAW),
         pdaTokenABump, {
           accounts: {
             vaultAccount: pdaTokenAAddress,
+            vaultAccess: vaultAccessAddress,
             to: user1TokenAAccount,
+            authority: user1.publicKey,
             tokenProgram: TOKEN_PROGRAM_ID,
-          }
+          },
+          signers: [user1]
       })
     );
 
     let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaTokenAAddress)).amount.toNumber();
     assert.equal(0, pdaTokenAAccountAmount);
+
+  });
+
+  it('Withdraw insufficient amount from our programs token vault', async () => {
+    const AMOUNT_TO_DEPOSIT = 200;
+
+    // Create a second user keypair
+    let user2 = anchor.web3.Keypair.generate();
+
+    // Airdrop sol to user2
+    await provider.connection.confirmTransaction(
+      await provider.connection.requestAirdrop(user2.publicKey, anchor.web3.LAMPORTS_PER_SOL),
+      "confirmed"
+    );
+
+    // Create mintA associated token account for user2
+    let user2TokenAAccount = await mintA.createAccount(user2.publicKey);
+
+    // Mint to user2's token account;
+    await mintA.mintTo(
+      user2TokenAAccount,
+      mintAuthority.publicKey,
+      [mintAuthority],
+      MINT_A_AMOUNT
+    );
+
+    // Create our user2 VaultAccess PDA
+    let [user2VaultAccessAddress, user2VaultAccessBump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("vault-access"), mintA.publicKey.toBuffer(), user2.publicKey.toBuffer()], program.programId);
+
+    //console.log("Initializing user2 VaultAccess Account.")
+    // Initialize user2 VaultAccess Account with PDA
+    await provider.connection.confirmTransaction(
+      await program.rpc.initializeVaultAccess(
+        user2VaultAccessBump, {
+          accounts: {
+            vaultAccess: user2VaultAccessAddress,
+            authority: user2.publicKey,
+            mint: mintA.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
+          },
+          signers: [user2]
+      })
+    );
+    
+    //console.log("Depositing funds to vault from user2")
+    // Deposit funds to vault from user2
+    await provider.connection.confirmTransaction(
+      await program.rpc.deposit(
+        new anchor.BN(AMOUNT_TO_DEPOSIT), {
+          accounts: {
+            vaultAccount: pdaTokenAAddress,
+            vaultAccess: user2VaultAccessAddress,
+            depositor: user2.publicKey,
+            depositorTokenAccount: user2TokenAAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          },
+          signers: [user2]
+      })
+    );
+
+    // Withdraw more funds then deposited
+    const AMOUNT_TO_WITHDRAW = AMOUNT_TO_DEPOSIT + 100;
+
+    //console.log("Withdrawing funds from vault for user2")
+    try {
+      await provider.connection.confirmTransaction(
+        await program.rpc.withdraw(
+          new anchor.BN(AMOUNT_TO_WITHDRAW),
+          pdaTokenABump, {
+            accounts: {
+              vaultAccount: pdaTokenAAddress,
+              vaultAccess: user2VaultAccessAddress,
+              to: user2TokenAAccount,
+              authority: user2.publicKey,
+              tokenProgram: TOKEN_PROGRAM_ID,
+            },
+            signers: [user2]
+        })
+      );
+    } catch (errorMessage) {
+      const ERROR_MESSAGE = "Error: Insufficient funds in vault";
+      console.log(errorMessage.toString());
+      assert.equal(ERROR_MESSAGE, errorMessage.toString());
+    }
 
   });
 
