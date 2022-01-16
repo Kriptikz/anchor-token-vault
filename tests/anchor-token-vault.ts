@@ -82,7 +82,9 @@ describe('anchor-token-vault', () => {
     // For this addresses seeds, we use 'vault' as well as the tokens mint public key -- We could also use a name, but I don't feel that is necessary.
     [pdaTokenAAddress, pdaTokenABump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("vault"), mintA.publicKey.toBuffer()], program.programId);
 
-    //console.log(`PDA Token A Address: ${pdaTokenAAddress}, Bump: ${pdaTokenABump}`);
+    console.log(`PDA Token A Address: ${pdaTokenAAddress}, Bump: ${pdaTokenABump}`);
+    console.log("User1 PubKey: ", user1.publicKey.toString());
+    console.log("Payer PubKey: ", payer.publicKey.toString());
   });
 
   it('Initializes our programs token vault', async () => {
@@ -123,6 +125,12 @@ describe('anchor-token-vault', () => {
           signers: [payer]
       })
     );
+
+    let pdaTokenAAccountInfo = await mintA.getAccountInfo(pdaTokenAAddress);
+    let pdaTokenAOwner = pdaTokenAAccountInfo.owner;
+
+    console.log("Token A Owner:", pdaTokenAOwner.toString());
+
   });
 
   it('Deposits to our programs token vault', async () => {
@@ -143,6 +151,26 @@ describe('anchor-token-vault', () => {
 
     let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaTokenAAddress)).amount.toNumber();
     assert.equal(AMOUNT_TO_TRANSFER, pdaTokenAAccountAmount);
+
+  });
+
+  it('Withdraw from our programs token vault', async () => {
+    const AMOUNT_TO_TRANSFER = 200;
+
+    await provider.connection.confirmTransaction(
+      await program.rpc.withdraw(
+        new anchor.BN(AMOUNT_TO_TRANSFER),
+        pdaTokenABump, {
+          accounts: {
+            vaultAccount: pdaTokenAAddress,
+            to: user1TokenAAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          }
+      })
+    );
+
+    let pdaTokenAAccountAmount = await (await mintA.getAccountInfo(pdaTokenAAddress)).amount.toNumber();
+    assert.equal(0, pdaTokenAAccountAmount);
 
   });
 

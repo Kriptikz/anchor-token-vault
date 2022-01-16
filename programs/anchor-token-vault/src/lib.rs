@@ -23,6 +23,33 @@ pub mod anchor_token_vault {
 
         Ok(())
     }
+
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64, bump: u8) -> ProgramResult {
+        // verify the vault is our vault PDA of the tokens mint
+        let mint = ctx.accounts.to.mint;
+        let (pda, _) = Pubkey::find_program_address(&[b"vault", mint.as_ref()], &id());
+
+        if pda != ctx.accounts.vault_account.key() {
+            return Err(ErrorCode::InvalidPdaVault.into())
+        }
+
+
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.vault_account.to_account_info(),
+            to: ctx.accounts.to.to_account_info(),
+            authority: ctx.accounts.vault_account.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                cpi_program, 
+                cpi_accounts,
+                &[&[b"vault", mint.as_ref(), &[bump]]]), 
+            amount)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -63,6 +90,15 @@ impl<'info> From<&Deposit<'info>> for CpiContext<'_, '_, '_, 'info, Transfer<'in
 
         CpiContext::new(cpi_program, cpi_accounts)
     }
+}
+
+#[derive(Accounts)]
+pub struct Withdraw<'info> {
+    #[account(mut)]
+    pub vault_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub to: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[error]
