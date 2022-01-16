@@ -21,10 +21,6 @@ describe('anchor-token-vault', () => {
   // Declare our user associated token account
   let user1TokenAAccount = null;
 
-  // Declare our PDA Authority System Account
-  let pdaAuthorityAddress = null;
-  let pdaAuthorityBump = null;
-
   // Declare our token account PDA and bump
   let pdaTokenAAddress = null;
   let pdaTokenABump = null;
@@ -83,12 +79,9 @@ describe('anchor-token-vault', () => {
     assert.equal(MINT_A_AMOUNT, amount);
 
     // Find our PDA's
-    [pdaAuthorityAddress, pdaAuthorityBump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("authority")], program.programId);
-
     // For this addresses seeds, we use 'vault' as well as the tokens mint public key -- We could also use a name, but I don't feel that is necessary.
     [pdaTokenAAddress, pdaTokenABump] = await anchor.web3.PublicKey.findProgramAddress([Buffer.from("vault"), mintA.publicKey.toBuffer()], program.programId);
 
-    console.log(`PDA Authority Address: ${pdaAuthorityAddress}, Bump: ${pdaAuthorityBump}`);
     console.log(`PDA Token A Address: ${pdaTokenAAddress}, Bump: ${pdaTokenABump}`);
     console.log("User1 PubKey: ", user1.publicKey.toString());
     console.log("Payer PubKey: ", payer.publicKey.toString());
@@ -100,7 +93,6 @@ describe('anchor-token-vault', () => {
         pdaTokenABump, {
           accounts: {
             vaultAccount: pdaTokenAAddress,
-            authority: pdaAuthorityAddress,
             payer: payer.publicKey,
             mint: mintA.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
@@ -119,21 +111,20 @@ describe('anchor-token-vault', () => {
 
     // Attemp second initialization of the same vault. Our init_if_needed attribute lets us call this as much as we want,
     // but only actually does the initialization once. Without init_if_needed this transaction will throw an error.
-    //await provider.connection.confirmTransaction(
-    //  await program.rpc.initializeVault(
-    //    pdaTokenABump, {
-    //      accounts: {
-    //        authority: pdaAuthorityAddress,
-    //        vaultAccount: pdaTokenAAddress,
-    //        payer: payer.publicKey,
-    //        mint: mintA.publicKey,
-    //        systemProgram: anchor.web3.SystemProgram.programId,
-    //        tokenProgram: TOKEN_PROGRAM_ID,
-    //        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-    //      },
-    //      signers: [payer]
-    //  })
-    //);
+    await provider.connection.confirmTransaction(
+      await program.rpc.initializeVault(
+        pdaTokenABump, {
+          accounts: {
+            vaultAccount: pdaTokenAAddress,
+            payer: payer.publicKey,
+            mint: mintA.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          },
+          signers: [payer]
+      })
+    );
 
     let pdaTokenAAccountInfo = await mintA.getAccountInfo(pdaTokenAAddress);
     let pdaTokenAOwner = pdaTokenAAccountInfo.owner;
@@ -168,10 +159,10 @@ describe('anchor-token-vault', () => {
 
     await provider.connection.confirmTransaction(
       await program.rpc.withdraw(
-        new anchor.BN(AMOUNT_TO_TRANSFER), {
+        new anchor.BN(AMOUNT_TO_TRANSFER),
+        pdaTokenABump, {
           accounts: {
             vaultAccount: pdaTokenAAddress,
-            authority: pdaAuthorityAddress,
             to: user1TokenAAccount,
             tokenProgram: TOKEN_PROGRAM_ID,
           }
