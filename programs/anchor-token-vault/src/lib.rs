@@ -6,7 +6,7 @@ declare_id!("GX2r6F2RzNAoR54oZ3EgrDwnUYJvW24cJpZnBnULRGiV");
 #[program]
 pub mod anchor_token_vault {
     use super::*;
-    pub fn initialize_vault(_ctx: Context<InitializeVault>, _bump: u8) -> ProgramResult {
+    pub fn initialize_vault(_ctx: Context<InitializeVault>, vault_bump: u8) -> ProgramResult {
         Ok(())
     }
 
@@ -23,18 +23,44 @@ pub mod anchor_token_vault {
 
         Ok(())
     }
+
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> ProgramResult {
+        // verify the vault is our vault PDA of the tokens mint
+        let mint = ctx.accounts.to.mint;
+        let (pda, _bump) = Pubkey::find_program_address(&[b"vault", mint.as_ref()], &id());
+
+        if pda != ctx.accounts.vault_account.key() {
+            return Err(ErrorCode::InvalidPdaVault.into())
+        }
+
+
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.vault_account.to_account_info(),
+            to: ctx.accounts.to.to_account_info(),
+            authority: ctx.accounts.authority.to_account_info(),
+        };
+
+        let cpi_context = CpiContext::new_with_signer(cpi_program, cpi_accounts, &[&[b"authority", &[255]]]);
+
+        token::transfer(cpi_context, amount)?;
+
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
-#[instruction(bump: u8)]
+#[instruction(vault_bump: u8)]
 pub struct InitializeVault<'info> {
     #[account(init_if_needed,
         payer = payer,
         seeds = [b"vault", mint.key().as_ref()],
-        bump = bump,
+        bump = vault_bump,
         token::mint = mint,
-        token::authority = vault_account)]
+        token::authority = authority)]
     pub vault_account: Account<'info, TokenAccount>,
+    pub authority: SystemAccount<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
     pub mint: Account<'info, Mint>,
@@ -63,6 +89,16 @@ impl<'info> From<&Deposit<'info>> for CpiContext<'_, '_, '_, 'info, Transfer<'in
 
         CpiContext::new(cpi_program, cpi_accounts)
     }
+}
+
+#[derive(Accounts)]
+pub struct Withdraw<'info> {
+    #[account(mut)]
+    pub vault_account: Account<'info, TokenAccount>,
+    pub authority: SystemAccount<'info>,
+    #[account(mut)]
+    pub to: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[error]
