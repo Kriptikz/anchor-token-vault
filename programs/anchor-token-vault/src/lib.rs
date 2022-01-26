@@ -11,12 +11,6 @@ pub mod anchor_token_vault {
     }
 
     pub fn initialize_vault_access(ctx: Context<InitializeAccess>, _bump: u8) -> ProgramResult {
-        // Verify the vault access address is the correct PDA
-        let (pda, _) = Pubkey::find_program_address(&[b"vault-access", ctx.accounts.mint.key().as_ref(), ctx.accounts.authority.key().as_ref()], &id());
-
-        if pda != ctx.accounts.vault_access.key() {
-            return Err(ErrorCode::InvalidPdaVaultAccess.into())
-        }
 
         ctx.accounts.vault_access.authority = ctx.accounts.authority.key();
         ctx.accounts.vault_access.amount = 0;
@@ -25,20 +19,6 @@ pub mod anchor_token_vault {
     }
 
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> ProgramResult {
-        // verify the vault is our vault PDA of the tokens mint
-        let mint = ctx.accounts.depositor_token_account.mint;
-        let (pda, _) = Pubkey::find_program_address(&[b"vault", mint.as_ref()], &id());
-
-        if pda != ctx.accounts.vault_account.key() {
-            return Err(ErrorCode::InvalidPdaVault.into())
-        }
-
-        // Verify the vault access address is the correct PDA
-        let (pda, _) = Pubkey::find_program_address(&[b"vault-access", mint.as_ref(), ctx.accounts.depositor.key().as_ref()], &id());
-
-        if pda != ctx.accounts.vault_access.key() {
-            return Err(ErrorCode::InvalidPdaVaultAccess.into())
-        }
 
         token::transfer((&*ctx.accounts).into(), amount)?;
 
@@ -47,24 +27,7 @@ pub mod anchor_token_vault {
         Ok(())
     }
 
-    // I actually don't need the bump here since I use find_program_address anyways...
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64, bump: u8) -> ProgramResult {
-        // verify the vault is our vault PDA of the tokens mint
-        let mint = ctx.accounts.to.mint;
-        let (pda, _) = Pubkey::find_program_address(&[b"vault", mint.as_ref()], &id());
-
-        if pda != ctx.accounts.vault_account.key() {
-            return Err(ErrorCode::InvalidPdaVault.into())
-        }
-
-        // Verify the vault access address is the correct PDA
-        let (pda, _) = Pubkey::find_program_address(&[b"vault-access", mint.as_ref(), ctx.accounts.authority.key().as_ref()], &id());
-
-        if pda != ctx.accounts.vault_access.key() {
-            return Err(ErrorCode::InvalidPdaVaultAccess.into())
-        }
-
-
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_accounts = Transfer {
             from: ctx.accounts.vault_account.to_account_info(),
@@ -82,7 +45,7 @@ pub mod anchor_token_vault {
             CpiContext::new_with_signer(
                 cpi_program, 
                 cpi_accounts,
-                &[&[b"vault", mint.as_ref(), &[bump]]]), 
+                &[&[b"vault", ctx.accounts.to.mint.as_ref(), &[bump]]]), 
             amount)?;
 
         Ok(())
@@ -125,9 +88,18 @@ pub struct InitializeAccess<'info> {
 #[derive(Accounts)]
 #[instruction(amount: u64)]
 pub struct Deposit<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"vault", depositor_token_account.mint.as_ref()],
+        bump,
+    )]
     pub vault_account: Account<'info, TokenAccount>,
-    #[account(mut, constraint = vault_access.authority == depositor.key())]
+    #[account(
+        mut,
+        seeds = [b"vault-access", depositor_token_account.mint.as_ref(), depositor.key().as_ref()],
+        bump,
+        constraint = vault_access.authority == depositor.key()
+    )]
     pub vault_access: Account<'info, VaultAccess>,
     pub depositor: Signer<'info>,
     #[account(mut)]
@@ -150,9 +122,18 @@ impl<'info> From<&Deposit<'info>> for CpiContext<'_, '_, '_, 'info, Transfer<'in
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"vault", to.mint.as_ref()],
+        bump,
+    )]
     pub vault_account: Account<'info, TokenAccount>,
-    #[account(mut, constraint = vault_access.authority == authority.key())]
+    #[account(
+        mut,
+        seeds = [b"vault-access", to.mint.as_ref(), authority.key().as_ref()],
+        bump, 
+        constraint = vault_access.authority == authority.key()
+    )]
     pub vault_access: Account<'info, VaultAccess>,
     #[account(mut, constraint = to.owner == authority.key())]
     pub to: Account<'info, TokenAccount>,
@@ -168,10 +149,6 @@ pub struct VaultAccess {
 
 #[error]
 pub enum ErrorCode {
-    #[msg("Error: Invalid PDA vault account")]
-    InvalidPdaVault,
-    #[msg("Error: Invalid PDA vault access account")]
-    InvalidPdaVaultAccess,
     #[msg("Error: Insufficient funds in vault")]
     InsufficientFundsInVault,
 }
